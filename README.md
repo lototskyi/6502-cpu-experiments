@@ -6,6 +6,7 @@ I am learning computer architecture by building a homemade computer and running 
 ## Inspiration & References
 - I follow [Ben Eater’s 6502 lessons](https://eater.net/6502) as step-by-step examples to understand the basics of the 6502 system.  
 - My build is based on a **homemade W65C02 computer** design inspired by [mike42/6502-computer](https://github.com/mike42/6502-computer).  
+- [vasm](http://sun.hasenbraten.de/vasm/) — A portable and retargetable assembler.
 
 ## Goals
 - Experiment with **clock generation, reset behavior, and bus timing**.  
