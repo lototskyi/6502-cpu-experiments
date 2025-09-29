@@ -8,169 +8,98 @@ IFR = $800d
 IER = $800e
 PCR = $800c
 
+kb_wptr = $0000
+kb_rptr = $0001
+kb_flags = $0002
+
+RELEASE = %00000001
+SHIFT   = %00000010
+
+kb_buffer = $0200		; 256-byte kb buffer 0200-02ff
+
 E  = %01000000
 RW = %00100000
 RS = %00010000 
 
-value = $0200 ; 2 bytes
-mod10 = $0202 ; 2 bytes
-message = $0204 ; 6 bytes
-counter = $020a ; 2 bytes
- 
  .org $c000
 
 reset:
- ldx #$ff		; Initialize stack pointer to 0x01ff
+ ldx #$ff				; Initialize stack pointer to 0x01ff
  txs
  cli
  
  ; 6522 interrupt configuration
- lda #$82 ; set CA1 active
+ lda #$82 				; set CA1 active
  sta IER
  lda #$01
  sta PCR
 
- lda #%11111111	; Set all pins on port B to output
+ lda #%11111111		; Set all pins on port B to output
  sta DDRB
  
- lda #%00000000	; Set all pins on port A to input
- sta DDRB
+ lda #%00000000		; Set all pins on port A to input
+ sta DDRA
  
  
  jsr lcd_init
- lda #%00101000	; Set 4-bit mode; 2-line display; 5x8 font
+ lda #%00101000		; Set 4-bit mode; 2-line display; 5x8 font
  jsr lcd_instruction
- lda #%00001110	; Display on; Cursor on; Blink off
+ lda #%00001111		; Display on; Cursor on; Blink on
  jsr lcd_instruction
- lda #%00000110	; Increment and shift cursor; don't shift display
+ lda #%00000110		; Increment and shift cursor; don't shift display
  jsr lcd_instruction
- lda #%00000001 ; Clear display
+ lda #%00000001 		; Clear display
  jsr lcd_instruction
 
- lda #0
- sta counter
- sta counter + 1
-
+ lda #$00
+ sta kb_wptr
+ sta kb_rptr
+ sta kb_flags
+ 
 loop:
- lda #%00000010 ; Home
- jsr lcd_instruction
-
- lda #0
- sta message
- 
- ; Initialize value to be the number to convert
  sei
- lda counter
- sta value
- lda counter + 1
- sta value + 1
- cli
-
-divide:
- ; Initialize the remainder to zero
- lda #0
- sta mod10
- sta mod10 + 1
- clc
- 
- ldx #16
-divloop:
- ; Rotate quotient and remainder
- rol value
- rol value + 1
- rol mod10
- rol mod10 + 1
- 
- ; a,y = dividend - divisor
- sec
- lda mod10
- sbc #10
- tay ; save low byte in Y
- lda mod10 + 1
- sbc #0
- bcc ignore_result ; branch if dividend < divisor
- sty mod10
- sta mod10 + 1
-
-ignore_result:
- dex
- bne divloop
- rol value ; shift in the last bit of the quotient
- rol value + 1
-
- lda mod10
- clc
- adc #"0"
- jsr push_char
-
- ; if value != 0, then continue dividing
- lda value
- ora value + 1
- bne divide ; branch if value not zero
-
- ldx #0
-print:
- lda message,x
- beq loop
- jsr print_char
- inx
- jmp print
-
-
+ lda kb_rptr
+ cmp kb_wptr
+ cli 
+ bne key_pressed
  jmp loop
  
-number: .word 1729
-
-; Add the character in the A register to the beginning of the
-; null-terminated string `message`
-push_char:
- pha ; Push new first char onto stack
- ldy #0
- 
-char_loop:
- lda message,y ; Get char on string and put into X
- tax
- pla
- sta message,y ; Pull char off stack and add it to the string
- iny
- txa
- pha           ; Push char from string onto stack
- bne char_loop
- 
- pla
- sta message,y ; Pull the null off the stack and to the end of the string
- 
- rts
- 
+key_pressed:
+ ldx kb_rptr
+ lda kb_buffer, x
+ jsr print_char
+ inc kb_rptr
+ jmp loop
+  
 lcd_wait:
- pha			; push A register into stack
- lda #%11110000 ; LCD data input
+ pha					; push A register into stack
+ lda #%11110000 		; LCD data input
  sta DDRB
 lcd_busy:
  lda #RW
  sta PORTB
  lda #(RW | E)
  sta PORTB
- lda PORTB      ; Read high nibble
- pha            ; and put on stack since it has the busy flag
+ lda PORTB      		; Read high nibble
+ pha            		; and put on stack since it has the busy flag
  lda #RW
  sta PORTB
  lda #(RW | E)
  sta PORTB
- lda PORTB      ; Read low nibble
- pla            ; Get high nible off stack
+ lda PORTB      		; Read low nibble
+ pla            		; Get high nible off stack
  and #%00001000
- bne lcd_busy   ; branch if Z not 0 (LCD is busy)
+ bne lcd_busy   		; branch if Z not 0 (LCD is busy)
  
  lda #RW
  sta PORTB
- lda #%11111111 ; Port B is output
+ lda #%11111111 		; Port B is output
  sta DDRB
  pla
  rts
  
 lcd_init:
- lda #%00000010 ; Set 4-bit mode
+ lda #%00000010 		; Set 4-bit mode
  sta PORTB
  ora #E
  sta PORTB
@@ -185,13 +114,13 @@ lcd_instruction:
  lsr
  lsr
  lsr
- sta PORTB      ; Send high 4 bits
- ora #E         ; Set E bit to send instruction
+ sta PORTB      		; Send high 4 bits
+ ora #E         		; Set E bit to send instruction
  sta PORTB
- eor #E			; Clear E bit
+ eor #E					; Clear E bit
  sta PORTB
  pla
- and #%00001111 ; Send low 4 bits
+ and #%00001111 		; Send low 4 bits
  sta PORTB
  ora #E
  sta PORTB
@@ -205,15 +134,15 @@ print_char:
  lsr
  lsr
  lsr
- lsr            ; Send high 4 bits
- ora #RS        ; Set RS
+ lsr            		; Send high 4 bits
+ ora #RS        		; Set RS
  sta PORTB
- ora #E         ; Set E bit to send instruction
+ ora #E         		; Set E bit to send instruction
  sta PORTB
- eor #E         ; Clear E bita
+ eor #E         		; Clear E bita
  sta PORTB
  pla
- and #%00001111 ; Send low 4 bits
+ and #%00001111 		; Send low 4 bits
  ora #RS
  sta PORTB
  ora #E
@@ -222,15 +151,135 @@ print_char:
  sta PORTB
  rts
 
+
+
 nmi:
-irq:
+ rti
+ 
+keyboard_interrupt:
  pha
+ txa
+ pha
+ 
+ lda kb_flags
+ and #RELEASE			; check if we're releasing a key
+ beq read_key			; otherwise, read the key
+ 
+ lda kb_flags
+ eor #RELEASE			; exclusive OR to set flags back
+ sta kb_flags
+ lda PORTA				; read key value that's being released
+ cmp #$12				; left shift
+ beq shift_up
+ cmp #$59				; right shift
+ beq shift_up
+ jmp exit
+ 
+shift_up:
+ lda kb_flags
+ eor #SHIFT				; flip the shift bit
+ sta kb_flags
+ jmp exit
+ 
+read_key:
  lda PORTA
- sta counter
+ cmp #$f0
+ beq key_release
+ 
+ cmp #$12				; left shift
+ beq shift_down
+ cmp #$59				; right shift
+ beq shift_down
+ 
+ cmp #$76        		; ESC
+ beq esc_down
+ 
+ cmp #$5a         		; Enter
+ beq enter_down  
+ 
+ tax
+ lda kb_flags
+ and #SHIFT
+ bne shifted_key
+ 
+ lda keymap, x
+ jmp push_key
+
+shifted_key:
+ lda keymap_shifted, x
+ 
+push_key:
+ ldx kb_wptr
+ sta kb_buffer, x
+ inc kb_wptr
+ jmp exit
+ 
+esc_down:
+ lda #%00000001 		; Clear display
+ jsr lcd_instruction
+ jmp exit
+ 
+enter_down:
+ lda #%11000000 		; Move cursor to the next row (+0x40)
+ jsr lcd_instruction
+ jmp exit 
+
+shift_down:
+ lda kb_flags
+ ora #SHIFT
+ sta kb_flags
+ jmp exit
+ 
+key_release:
+ lda kb_flags
+ ora #RELEASE
+ sta kb_flags
+ 
+exit:
+ pla
+ tax
  pla
  rti
  
+ .org $fd00
+keymap:
+ .byte "????????????? `?" ; 00-0F
+ .byte "?????q1???zsaw2?" ; 10-1F
+ .byte "?cxde43?? vftr5?" ; 20-2F
+ .byte "?nbhgy6???mju78?" ; 30-3F
+ .byte "?,kio09??./l;p-?" ; 40-4F
+ .byte "??'?[=????",$0a,"]?\??" ; 50-5F
+ .byte "?????????1?47???" ; 60-6F
+ .byte "0.2568",$1b,"??+3-*9??" ; 70-7F
+ .byte "????????????????" ; 80-8F
+ .byte "????????????????" ; 90-9F
+ .byte "????????????????" ; A0-AF
+ .byte "????????????????" ; B0-BF
+ .byte "????????????????" ; C0-CF
+ .byte "????????????????" ; D0-DF
+ .byte "????????????????" ; E0-EF
+ .byte "????????????????" ; F0-FF
+keymap_shifted:
+ .byte "????????????? ~?" ; 00-0F
+ .byte "?????Q!???ZSAW@?" ; 10-1F
+ .byte "?CXDE#$?? VFTR%?" ; 20-2F
+ .byte "?NBHGY^???MJU&*?" ; 30-3F
+ .byte "?<KIO)(??>?L:P_?" ; 40-4F
+ .byte '??"?{+?????}?|??' ; 50-5F
+ .byte "?????????1?47???" ; 60-6F
+ .byte "0.2568???+3-*9??" ; 70-7F
+ .byte "????????????????" ; 80-8F
+ .byte "????????????????" ; 90-9F
+ .byte "????????????????" ; A0-AF
+ .byte "????????????????" ; B0-BF
+ .byte "????????????????" ; C0-CF
+ .byte "????????????????" ; D0-DF
+ .byte "????????????????" ; E0-EF
+ .byte "????????????????" ; F0-FF
+ 
+ 
+; Reset/IRQ vectors 
  .org $fffa
  .word nmi
  .word reset
- .word irq
+ .word keyboard_interrupt
